@@ -1,0 +1,46 @@
+name: Refresh Google OAuth token
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # daily at 03:00 UTC
+  workflow_dispatch:      # manual trigger
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    env:
+      # Bitwarden session – stored as a secret in the repo
+      BITWARDEN_SESSION: ${{ secrets.BITWARDEN_SESSION }}
+
+      # Required Google & Bitwarden vars
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      BW_UUID_CLIENT_ID: ${{ secrets.BW_UUID_CLIENT_ID }}
+      BW_UUID_CLIENT_SECRET: ${{ secrets.BW_UUID_CLIENT_SECRET }}
+      BW_UUID_REFRESH_TOKEN: ${{ secrets.BW_UUID_REFRESH_TOKEN }}
+
+      # Optional Cloudflare vars (set if you want Cloudflare sync)
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CF_SCRIPT_NAME: ${{ secrets.CF_SCRIPT_NAME }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install utilities
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq curl
+
+      - name: Install Bitwarden CLI & bws
+        run: |
+          curl -Lso- https://vault.bitwarden.com/download/?app=cli-linux-x64 | tar xz -C $HOME/.local/bin bw
+          npm i -g bws
+
+      - name: Install Wrangler (optional)
+        if: env.CF_ACCOUNT_ID != ''
+        run: npm i -g @cloudflare/wrangler
+
+      - name: Run the refresh script
+        run: |
+          chmod +x ./update-google-secrets.sh
+          ./update-google-secrets.sh
