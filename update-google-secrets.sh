@@ -26,6 +26,9 @@ set -euo pipefail
 #   ONECLI_SECRET_CLIENT_ID     – secret name for client ID (default: GOOGLE_OAUTH_CLIENT_ID)
 #   ONECLI_SECRET_CLIENT_SECRET – secret name for client secret (default: GOOGLE_OAUTH_CLIENT_SECRET)
 #   ONECLI_SECRET_REFRESH_TOKEN – secret name for refresh token (default: GOOGLE_OAUTH_REFRESH_TOKEN)
+#   Secrets are created as `generic` with param-name injection on the matching
+#   Google OAuth host (oauth2.googleapis.com / www.googleapis.com) – the OneCLI
+#   server requires an injection mechanism (header, param, or path template).
 # ------------------------------------------------------------
 
 # Verify required vars
@@ -107,27 +110,29 @@ if [[ -n "${ONECLI_API_KEY:-}" ]]; then
   export ONECLI_API_HOST="${ONECLI_API_HOST:-https://onecli.assistedly.ai}"
 
   # Idempotent upsert: update the secret if it exists, otherwise create it.
+  # Generic secrets require an injection mechanism (header, param, or path
+  # template); we use --param-name with the natural OAuth parameter name.
   onecli_secret_upsert() {
-    local name="$1" value="$2" host="$3"
+    local name="$1" value="$2" host="$3" param="$4"
     local existing_id
     existing_id=$(onecli secrets list --fields id,name --max 200 \
-      | jq -r --arg n "$name" '.[] | select(.name == $n) | .id' | head -n1)
+      | jq -r --arg n "$name" '(. // [])[] | select(.name == $n) | .id' | head -n1)
     if [[ -n "$existing_id" ]]; then
       onecli secrets update --id "$existing_id" --value "$value" >/dev/null
       echo "   ✅ updated OneCLI secret: $name"
     else
       onecli secrets create --name "$name" --type generic \
-        --value "$value" --host-pattern "$host" >/dev/null
+        --value "$value" --host-pattern "$host" --param-name "$param" >/dev/null
       echo "   ✅ created OneCLI secret: $name"
     fi
   }
 
   onecli_secret_upsert "${ONECLI_SECRET_CLIENT_ID:-GOOGLE_OAUTH_CLIENT_ID}" \
-    "$GOOGLE_CLIENT_ID" "*.googleapis.com"
+    "$GOOGLE_CLIENT_ID" "oauth2.googleapis.com" "client_id"
   onecli_secret_upsert "${ONECLI_SECRET_CLIENT_SECRET:-GOOGLE_OAUTH_CLIENT_SECRET}" \
-    "$GOOGLE_CLIENT_SECRET" "*.googleapis.com"
+    "$GOOGLE_CLIENT_SECRET" "oauth2.googleapis.com" "client_secret"
   onecli_secret_upsert "${ONECLI_SECRET_REFRESH_TOKEN:-GOOGLE_OAUTH_REFRESH_TOKEN}" \
-    "$REFRESH_TOKEN" "*.googleapis.com"
+    "$REFRESH_TOKEN" "www.googleapis.com" "refresh_token"
   echo "✅ OneCLI secrets updated"
 else
   echo "⚠️ ONECLI_API_KEY not set – skipping OneCLI sync"
