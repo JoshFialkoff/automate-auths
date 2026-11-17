@@ -24,6 +24,9 @@ jobs:
       CF_SCRIPT_NAME: ${{ secrets.CF_SCRIPT_NAME }}
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
 
+      # Optional OneCLI var (set if you want OneCLI gateway sync)
+      ONECLI_API_KEY: ${{ secrets.ONECLI_API_KEY }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -39,6 +42,10 @@ jobs:
       - name: Install Wrangler (optional)
         if: env.CF_ACCOUNT_ID != ''
         run: npm i -g @cloudflare/wrangler
+
+      - name: Install OneCLI CLI (optional)
+        if: env.ONECLI_API_KEY != ''
+        run: curl -fsSL onecli.sh/cli/install | sh
 
       - name: Run the refresh script
         run: |

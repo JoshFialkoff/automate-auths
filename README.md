@@ -41,6 +41,15 @@ export BITWARDEN_SESSION="YOUR_BW_SESSION"
 export CF_ACCOUNT_ID="your-account-id"
 export CF_SCRIPT_NAME="my-worker"
 export CF_API_TOKEN="your-cloudflare-token"
+
+# Optional OneCLI vars (set ONECLI_API_KEY to sync to the OneCLI gateway vault)
+export ONECLI_API_KEY="oc_your-onecli-api-key"          # enables the OneCLI sync stage
+export ONECLI_API_HOST="https://onecli.assistedly.ai"   # optional (this is the default)
+export ONECLI_PROJECT="your-project-slug"               # optional; CLI default used if unset
+# Optional: override the secret names stored in the OneCLI vault
+export ONECLI_SECRET_CLIENT_ID="GOOGLE_OAUTH_CLIENT_ID"
+export ONECLI_SECRET_CLIENT_SECRET="GOOGLE_OAUTH_CLIENT_SECRET"
+export ONECLI_SECRET_REFRESH_TOKEN="GOOGLE_OAUTH_REFRESH_TOKEN"
 ```
 
 ---
@@ -61,6 +70,9 @@ The script will:
 2. Poll until you approve, then capture the refresh token.
 3. Update the three Bitwarden secrets **in‑place** (same UUIDs).
 4. If Cloudflare vars are set, push the same values as Workers secrets.
+5. If `ONECLI_API_KEY` is set, upsert the same values into the OneCLI gateway vault
+   (onecli.assistedly.ai) as `generic` secrets, so agents routed through the gateway
+   can be granted them.
 
 ---
 

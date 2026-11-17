@@ -4,6 +4,7 @@
 #   - Generates a Google OAuth refresh token (device flow)
 #   - Updates Bitwarden secrets (preserving UUIDs)
 #   - Optionally pushes the same values to Cloudflare Workers secrets
+#   - Optionally pushes the same values to the OneCLI gateway vault
 # ------------------------------------------------------------
 
 set -euo pipefail
@@ -18,6 +19,13 @@ set -euo pipefail
 #   BITWARDEN_SESSION           – "bw" session key (login + unlock first)
 # Optional Cloudflare variables (set to enable CF sync)
 #   CF_ACCOUNT_ID, CF_SCRIPT_NAME, CF_API_TOKEN
+# Optional OneCLI variables (set ONECLI_API_KEY to enable OneCLI sync)
+#   ONECLI_API_KEY              – OneCLI API key (oc_…); unset = skip stage
+#   ONECLI_API_HOST             – OneCLI API base URL (default: https://onecli.assistedly.ai)
+#   ONECLI_PROJECT              – OneCLI project slug (optional; CLI default used if unset)
+#   ONECLI_SECRET_CLIENT_ID     – secret name for client ID (default: GOOGLE_OAUTH_CLIENT_ID)
+#   ONECLI_SECRET_CLIENT_SECRET – secret name for client secret (default: GOOGLE_OAUTH_CLIENT_SECRET)
+#   ONECLI_SECRET_REFRESH_TOKEN – secret name for refresh token (default: GOOGLE_OAUTH_REFRESH_TOKEN)
 # ------------------------------------------------------------
 
 # Verify required vars
@@ -86,6 +94,43 @@ if [[ -n "${CF_ACCOUNT_ID:-}" && -n "${CF_SCRIPT_NAME:-}" && -n "${CF_API_TOKEN:
   echo "✅ Cloudflare secrets updated"
 else
   echo "⚠️ Cloudflare vars not set – skipping CF sync"
+fi
+
+# ---- 4️⃣ Optional OneCLI gateway sync ----
+if [[ -n "${ONECLI_API_KEY:-}" ]]; then
+  echo "🔄 Syncing to OneCLI gateway..."
+  command -v onecli >/dev/null 2>&1 || {
+    echo "❌ onecli CLI not found – install with: curl -fsSL onecli.sh/cli/install | sh"
+    exit 1
+  }
+  # The onecli CLI reads ONECLI_API_KEY / ONECLI_API_HOST / ONECLI_PROJECT from env.
+  export ONECLI_API_HOST="${ONECLI_API_HOST:-https://onecli.assistedly.ai}"
+
+  # Idempotent upsert: update the secret if it exists, otherwise create it.
+  onecli_secret_upsert() {
+    local name="$1" value="$2" host="$3"
+    local existing_id
+    existing_id=$(onecli secrets list --fields id,name --max 200 \
+      | jq -r --arg n "$name" '.[] | select(.name == $n) | .id' | head -n1)
+    if [[ -n "$existing_id" ]]; then
+      onecli secrets update --id "$existing_id" --value "$value" >/dev/null
+      echo "   ✅ updated OneCLI secret: $name"
+    else
+      onecli secrets create --name "$name" --type generic \
+        --value "$value" --host-pattern "$host" >/dev/null
+      echo "   ✅ created OneCLI secret: $name"
+    fi
+  }
+
+  onecli_secret_upsert "${ONECLI_SECRET_CLIENT_ID:-GOOGLE_OAUTH_CLIENT_ID}" \
+    "$GOOGLE_CLIENT_ID" "*.googleapis.com"
+  onecli_secret_upsert "${ONECLI_SECRET_CLIENT_SECRET:-GOOGLE_OAUTH_CLIENT_SECRET}" \
+    "$GOOGLE_CLIENT_SECRET" "*.googleapis.com"
+  onecli_secret_upsert "${ONECLI_SECRET_REFRESH_TOKEN:-GOOGLE_OAUTH_REFRESH_TOKEN}" \
+    "$REFRESH_TOKEN" "*.googleapis.com"
+  echo "✅ OneCLI secrets updated"
+else
+  echo "⚠️ ONECLI_API_KEY not set – skipping OneCLI sync"
 fi
 
 echo "\n🎉 All done! 🎉"
