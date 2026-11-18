@@ -26,9 +26,11 @@ set -euo pipefail
 #   ONECLI_SECRET_CLIENT_ID     – secret name for client ID (default: GOOGLE_OAUTH_CLIENT_ID)
 #   ONECLI_SECRET_CLIENT_SECRET – secret name for client secret (default: GOOGLE_OAUTH_CLIENT_SECRET)
 #   ONECLI_SECRET_REFRESH_TOKEN – secret name for refresh token (default: GOOGLE_OAUTH_REFRESH_TOKEN)
+#   ONECLI_AGENT                – agent identifier to grant secrets to (default: goose; empty = skip grant)
 #   Secrets are created as `generic` with param-name injection on the matching
 #   Google OAuth host (oauth2.googleapis.com / www.googleapis.com) – the OneCLI
 #   server requires an injection mechanism (header, param, or path template).
+#   After upsert, secrets are granted to the OneCLI agent (idempotent attach).
 # ------------------------------------------------------------
 
 # Verify required vars
@@ -110,6 +112,7 @@ if [[ -n "${ONECLI_API_KEY:-}" ]]; then
   export ONECLI_API_HOST="${ONECLI_API_HOST:-https://onecli.assistedly.ai}"
 
   # Idempotent upsert: update the secret if it exists, otherwise create it.
+  # Returns the secret ID on stdout (after the status echo).
   # Generic secrets require an injection mechanism (header, param, or path
   # template); we use --param-name with the natural OAuth parameter name.
   onecli_secret_upsert() {
@@ -120,20 +123,41 @@ if [[ -n "${ONECLI_API_KEY:-}" ]]; then
     if [[ -n "$existing_id" ]]; then
       onecli secrets update --id "$existing_id" --value "$value" >/dev/null
       echo "   ✅ updated OneCLI secret: $name"
+      echo "$existing_id"
     else
-      onecli secrets create --name "$name" --type generic \
-        --value "$value" --host-pattern "$host" --param-name "$param" >/dev/null
+      local new_id
+      new_id=$(onecli secrets create --name "$name" --type generic \
+        --value "$value" --host-pattern "$host" --param-name "$param" \
+        | jq -r .id)
       echo "   ✅ created OneCLI secret: $name"
+      echo "$new_id"
     fi
   }
 
-  onecli_secret_upsert "${ONECLI_SECRET_CLIENT_ID:-GOOGLE_OAUTH_CLIENT_ID}" \
-    "$GOOGLE_CLIENT_ID" "oauth2.googleapis.com" "client_id"
-  onecli_secret_upsert "${ONECLI_SECRET_CLIENT_SECRET:-GOOGLE_OAUTH_CLIENT_SECRET}" \
-    "$GOOGLE_CLIENT_SECRET" "oauth2.googleapis.com" "client_secret"
-  onecli_secret_upsert "${ONECLI_SECRET_REFRESH_TOKEN:-GOOGLE_OAUTH_REFRESH_TOKEN}" \
-    "$REFRESH_TOKEN" "www.googleapis.com" "refresh_token"
+  # Upsert all three secrets and capture their IDs for the grant step.
+  CID_SECRET_ID=$(onecli_secret_upsert "${ONECLI_SECRET_CLIENT_ID:-GOOGLE_OAUTH_CLIENT_ID}" \
+    "$GOOGLE_CLIENT_ID" "oauth2.googleapis.com" "client_id" | tail -n1)
+  CSECRET_SECRET_ID=$(onecli_secret_upsert "${ONECLI_SECRET_CLIENT_SECRET:-GOOGLE_OAUTH_CLIENT_SECRET}" \
+    "$GOOGLE_CLIENT_SECRET" "oauth2.googleapis.com" "client_secret" | tail -n1)
+  RTOKEN_SECRET_ID=$(onecli_secret_upsert "${ONECLI_SECRET_REFRESH_TOKEN:-GOOGLE_OAUTH_REFRESH_TOKEN}" \
+    "$REFRESH_TOKEN" "www.googleapis.com" "refresh_token" | tail -n1)
   echo "✅ OneCLI secrets updated"
+
+  # ---- Grant secrets to the OneCLI agent (idempotent attach) ----
+  if [[ -n "${ONECLI_AGENT:-goose}" ]]; then
+    onecli_agent_id=""
+    onecli_agent_id=$(onecli agents list --fields id,identifier --max 200 \
+      | jq -r --arg idf "${ONECLI_AGENT:-goose}" '(. // [])[] | select(.identifier == $idf) | .id' | head -n1)
+    if [[ -z "$onecli_agent_id" ]]; then
+      echo "⚠️ OneCLI agent '${ONECLI_AGENT:-goose}' not found – skipping grant step"
+    else
+      for sid in "$CID_SECRET_ID" "$CSECRET_SECRET_ID" "$RTOKEN_SECRET_ID"; do
+        [[ -n "$sid" ]] && onecli agents grants attach-secret \
+          --id "$onecli_agent_id" --secret-id "$sid" >/dev/null 2>&1 || true
+      done
+      echo "   ✅ granted secrets to OneCLI agent: ${ONECLI_AGENT:-goose}"
+    fi
+  fi
 else
   echo "⚠️ ONECLI_API_KEY not set – skipping OneCLI sync"
 fi

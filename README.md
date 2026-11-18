@@ -50,6 +50,7 @@ export ONECLI_PROJECT="your-project-slug"               # optional; CLI default 
 export ONECLI_SECRET_CLIENT_ID="GOOGLE_OAUTH_CLIENT_ID"
 export ONECLI_SECRET_CLIENT_SECRET="GOOGLE_OAUTH_CLIENT_SECRET"
 export ONECLI_SECRET_REFRESH_TOKEN="GOOGLE_OAUTH_REFRESH_TOKEN"
+export ONECLI_AGENT="goose"                           # agent to grant secrets to (default: goose; empty = skip)
 ```
 
 ---
@@ -72,7 +73,8 @@ The script will:
 4. If Cloudflare vars are set, push the same values as Workers secrets.
 5. If `ONECLI_API_KEY` is set, upsert the same values into the OneCLI gateway vault
    (onecli.assistedly.ai) as `generic` secrets, so agents routed through the gateway
-   can be granted them.
+   can be granted them. The secrets are then granted (idempotent attach) to the
+   agent identified by `ONECLI_AGENT` (default: `goose`).
 
 ---
 
